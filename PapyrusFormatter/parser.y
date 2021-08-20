@@ -57,16 +57,6 @@
 
 %start all_file
 
-%precedence LOW
-
-%precedence "["
-%precedence ")"
-%precedence "("
-%precedence "."
-%precedence ADD
-
-%precedence HIG
-
 %%
 
 all_file: Program { $$ = $1; $$->print(outname); delete $$; }
@@ -141,15 +131,15 @@ propertyFlag
 propertyFlag_auto
   : AUTO         { $$ = $1; }
   | AUTOREADONLY { $$ = $1; }
-variableFlag
-  : CONDITIONAL  { $$ = $1; }
+//variableFlag
+//  : CONDITIONAL  { $$ = $1; }
 functionFlag     // + NATIVE
   : GLOBAL       { $$ = $1; }
 
 some_scriptFlags:    %empty { $$ = new NodeList(); } | some_scriptFlags   wss scriptFlag      { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
 some_functionFlags:  %empty { $$ = new NodeList(); } | some_functionFlags wss functionFlag    { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
 some_propertyFlags:  %empty { $$ = new NodeList(); } | some_propertyFlags wss propertyFlag    { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
-some_variableFlags:  %empty { $$ = new NodeList(); } | some_variableFlags wss variableFlag    { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
+//some_variableFlags:  %empty { $$ = new NodeList(); } | some_variableFlags wss variableFlag    { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
 
 
 // ^^^^^^^^^^^^^^  FLAGS  ^^^^^^^^^^^^^^^^^
@@ -322,7 +312,7 @@ BolExpr
   | AddExpr CMP mb_wss BolExpr   { $$ = new NodeBin($1, new NodeWSoneline($2, $3), $4); }
 
 AddExpr
-  : MulExpr                      { $$ = $1; }  %prec LOW
+  : MulExpr                      { $$ = $1; }
   | MulExpr ADD mb_wss AddExpr   { $$ = new NodeBin($1, new NodeWSoneline($2, $3), $4); }
 
 MulExpr

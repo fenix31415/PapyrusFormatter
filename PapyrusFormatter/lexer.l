@@ -11,6 +11,10 @@
     extern YYSTYPE yylval;
 %}
 
+%top{
+#include <stdint.h>
+}
+
 Q (Q|q)
 W (W|w)
 E (E|e)

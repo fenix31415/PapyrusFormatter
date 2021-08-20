@@ -248,7 +248,7 @@ public:
     }
     virtual std::string text() const {
         std::string ans = "{ ";
-        for (int i = ch.size() - 1; i >= 0; --i) {
+        for (int i = (int)ch.size() - 1; i >= 0; --i) {
             if (i != ch.size() - 1) ans += ", ";
             ans += ch[i]->text();
         }

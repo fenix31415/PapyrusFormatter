@@ -41,7 +41,7 @@ public:
 
     virtual std::string print_(const std::string& shift = "") {
         std::string ans = "(" + gettype() + ": " + text() + " ";
-        for (int i = ch.size() - 1; i >= 0; --i) {
+        for (int i = (int)ch.size() - 1; i >= 0; --i) {
             ans += "[" + ch[i]->print_(shift) + "], ";
         }
         ans += ")";
@@ -72,7 +72,7 @@ public:
 
     void appendValues(std::string& ans, const Node* src, const std::string& enhL = "", const std::string& enhR = "") const {
         std::string tmp = "";
-        for (int i = src->ch.size() - 1; i >= 0; --i) {
+        for (int i = (int)src->ch.size() - 1; i >= 0; --i) {
             tmp += enhL + src->ch[i]->text() + enhR;
         }
         if (tmp != "")
