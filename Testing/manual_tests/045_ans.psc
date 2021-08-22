@@ -1,0 +1,3 @@
+Scriptname a
+
+int a

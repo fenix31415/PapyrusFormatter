@@ -16,6 +16,7 @@
     #define YYINITDEPTH 500
     
     int  wrapRet = 1;
+    void closeinpfile();
     
     int yylex(void);
     extern "C" {
@@ -24,6 +25,7 @@
         }
     }
     void yyerror(const char *str) {
+        closeinpfile();
          cout << "[@#$$!@#^&^!#$@] RRParserRR: " << str << endl;
     }
 
@@ -60,14 +62,14 @@
 
 %%
 
-all_file: Program { $$ = $1; $$->print(outname); delete $$; }
+all_file: Program{ $$ = $1; closeinpfile(); $$->print(outname); delete $$; }
 
 Program
   : Header mb_ProgramBody { $$ = new NodeConstList({$1, $2}, {"", "\n", ""});}
 
 mb_ProgramBody:
     %empty{ $$ = new Node_mb();}
-    | EOL some_Elements mb_wss{ $$ = new NodeWS_rem($2, $3, true); }
+    | EOL some_Elements mb_wss{ $$ = new NodeWSlastline($2, $3); }
     | EOL some_Elements mb_wss Element{ $2->addch(new NodeWSl_enh($4, $3)); $$ = $2; }
 
 Header
@@ -85,7 +87,7 @@ header_end
   { $$ = new NodeConstList({new NodeWSr_enh($2, $1, false), new NodeConstList({$3, new NodeWSr_enh($4, $5)}, {}, {"", " "})}, {"", " "}, {"", " "}); }
 
 some_Elements
-  :                           %empty { $$ = new NodeProgStatements(false); }
+  :                           %empty { $$ = new NodeProgStatements(false, true); }
   | some_Elements mb_wss Element EOL { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
   | some_Elements mb_wss         EOL{ $$ = $1; $$->addch(new NodeWScomment($2)); }
 
@@ -108,9 +110,9 @@ globalDefin_end
 
 State
   : state_start mb_wss EOL some_StateElements mb_wss ENDSTATE mb_wss
-  { $$ = new NodeConstListT("State", {$1, new NodeWSr_enh(new Node_mb(), $2), $4, new NodeWSr_enh(new NodeWSr_enh($6, $7), $5, false)}, {"","","", "", "\n"});}
+  { $$ = new NodeConstListT("State", {$1, new NodeWSnewline(new Node_mb(), $2), $4, new NodeWSl_enh(new NodeWSr_enh($6, $7), $5, false)}, {"","","", "", "\n"});}
 
-state_start: mb_auto STATE wss ID  { $$ = new NodeConstList({$1, new NodeWSoneline($4, $3, false)}, {"", "state", "\n"});}
+state_start: mb_auto STATE wss ID  { $$ = new NodeConstList({$1, new NodeWSoneline($4, $3, false)}, {"", "state"});}
 some_StateElements
   :                                                  %empty { $$ = new NodeProgStatements(); }
   | some_StateElements mb_wss function         EOL  { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
@@ -208,7 +210,7 @@ mb_InParamList:                %empty { $$ = new Node_mb(); } | InParamList { $$
 
 function
   : functionHeader EOL Statements mb_wss ENDFUNCTION mb_wss  { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSnewline($5, $6, true), $4)); }
-  | functionHeader NATIVE mb_wssfunctionflags                { $$ = new NodeConstListT("NodeFunc_native", {$1, $3}, {""," native\n"});}
+  | functionHeader NATIVE mb_wssfunctionflags                { $$ = new NodeConstListT("NodeFunc_n", {$1, $3}, {""," native", "\n"}); }
 
 functionHeader
   : mb_type FUNCTION wss ID mb_wss paramList mb_functionFlags
@@ -229,8 +231,8 @@ some_functions
 // --------  EVENTS  --------
 
 event
-  : eventHeader EOL Statements mb_wss ENDEVENT mb_wss { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSr_enh($5, $6), $4)); }
-  | eventHeader NATIVE mb_wss                         { $$ = new NodeConstListT("NodeFunc", {$1, $3}, {""," native"});}
+  : eventHeader EOL Statements mb_wss ENDEVENT mb_wss { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSnewline($5, $6, true), $4), true); }
+  | eventHeader NATIVE mb_wss                         { $$ = new NodeConstListT("NodeEvent_n", {$1, new NodeWSr_enh(new Node_mb(), $3)}, {""," native", "\n"});}
 
 eventHeader
   : EVENT wss ID mb_wss paramList

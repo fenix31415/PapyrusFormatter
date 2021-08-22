@@ -3,7 +3,9 @@ Testing/SCRIPTS/
 Testing/compiled_tmp/
 Testing/PapyrusFormatter.exe
 Testing/sample.psc
-Testing/sample.psc
+Testing/named_tests/PapyrusFormatter.exe
+Testing/out
+Testing/log.txt
 Tests/x64/
 x64/
 .vs/

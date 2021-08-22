@@ -11,7 +11,8 @@
 #include <array>
 
 // auto/autoreadonly * type/name/init
-int maxprops[2][3];
+static int maxprops[2][3];
+static const std::string sep = "\n";
 
 enum TrimOptions :unsigned char {
     LForceWS = 0x1,  // a _d_ +; a _d_ [
@@ -190,7 +191,7 @@ public:
     }
     virtual bool isEmpty() const { return true; }
     std::string gettype() const override { return ch[0]->gettype(); }
-    bool incShift() const override { return ch[0] ? ch[0]->incShift() : false; }
+    bool incShift() const override { return ch[0] ? ch[0]->incShift() : true; }
     NodeNws(Node* n, unsigned char ops, Node* rws = nullptr, bool right = true) : Node(), ops(ops), right(right) { addch({ n, rws }); };
 };
 
@@ -240,6 +241,12 @@ public:
     NodeConstListT(std::string type, std::vector<Node*> chs, std::vector<std::string> enhs, std::vector<std::string> args, bool withStart = true) : NodeConstList(chs, enhs, args), type(type) { };
 };
 
+class NodeWScomment : public NodeNws {
+public:
+    bool isEmpty() const override { return false; }
+    NodeWScomment(Node* rws) : NodeNws(nullptr, TrimOptionsPresets::comment, rws, false) { };
+};
+
 class NodeListEndlBase : public Node {
 public:
     enum Options :unsigned char {
@@ -273,7 +280,7 @@ public:
             if (hasendl && !(opts & 8)) *hasendl = true;
             if (hasendl && (opts & 8)) *hasendl = false;
         }
-        else if (!(opts & 1)) {
+        else if (!dynamic_cast<NodeWScomment*>(ch_i) && !(opts & 1)) {
             if (hasendl) *hasendl = false;
         }
     }
@@ -289,12 +296,13 @@ public:
     }
     void generic_print_one(std::ostream& out, Node* v, const std::string& shift, bool compressed, bool* hasendl, unsigned char ops) const;
     void generic_print(std::ostream& out, const nodes_t& v, const std::string& shift, bool compressed, unsigned char ops, bool* shouldsep = nullptr) const {
-        if (shouldsep && *shouldsep && v.size()) out << "\n";
-        if (shouldsep) *shouldsep || v.size() > 0;
+        if (shouldsep && *shouldsep && v.size()) out << sep;
+        if (shouldsep) *shouldsep = *shouldsep || v.size() > 0;
         bool hasendl = true;
         for (int i = 0; i < v.size(); ++i) {
             generic_print_one(out, v[i], shift, compressed, &hasendl, ops);
         }
+        if (shouldsep && v.size() > 0) *shouldsep = !hasendl;
     }
 };
 
@@ -306,7 +314,7 @@ public:
 
 void NodeListEndlBase::generic_print_one(std::ostream& out, Node* v, const std::string& shift, bool compressed, bool* hasendl, unsigned char ops) const {
     std::string new_shift = shift;
-    if ((ops & Options::AddShift)) new_shift += one_shift;
+    if (v->incShift() && (ops & Options::AddShift)) new_shift += one_shift;
     auto type = get_type(v);
     unsigned char addshift = ops & Options::AddShift ? 0x4 : 0x0;
 
@@ -388,10 +396,9 @@ public:
     NodeWSnewline(Node* n, Node* rws = nullptr, bool right = false) : NodeNws(n, TrimOptionsPresets::newline, rws, right) { };
 };
 
-class NodeWScomment : public NodeNws {
+class NodeWSlastline : public NodeNws {
 public:
-    bool isEmpty() const override { return false; }
-    NodeWScomment(Node* rws) : NodeNws(nullptr, TrimOptionsPresets::comment, rws, false) { };
+    NodeWSlastline(Node* n, Node* rws = nullptr, bool right = true) : NodeNws(n, TrimOptionsPresets::comment, rws, right) { };
 };
 
 class NodeWSoneline : public NodeNws {
@@ -422,6 +429,7 @@ public:
 
 
 class NodeFunc : public Node {
+    bool isevent;
 public:
     void print_(std::ostream& out, const std::string& shift = "") override {
         ch[0]->print_(out);
@@ -430,8 +438,8 @@ public:
         out << shift;
         ch[2]->print_(out, shift);
     }
-    std::string gettype() const override { return "NodeFunc"; }
-    NodeFunc(Node* header, Node* statements, Node* endfunction) : Node() { addch({ header, statements, endfunction }); };
+    std::string gettype() const override { return isevent ? "NodeEvent" : "NodeFunc"; }
+    NodeFunc(Node* header, Node* statements, Node* endfunction, bool isevent = false) : Node(), isevent(isevent) { addch({ header, statements, endfunction }); };
 };
 
 // for state, script, big_property
@@ -440,7 +448,8 @@ class NodeProgStatements : public NodeListEndlBase {
     using item_t = std::tuple<Node*, nodes_t, Node*>;
     using nodes_vec = std::vector<item_t>;  // item, comms, docstr
     nodes_t tech[2]; // start, end
-    nodes_vec items[8];  // props_auto, props_read, props_big, vars, functions, states, imports, functions_native, end
+    static constexpr size_t ITEMS_SIZE = 10;
+    nodes_vec items[ITEMS_SIZE];  // props_auto, props_read, props_big, vars, functions, states, imports, functions_native, events
 
     static size_t get_item_ind(std::string nodetype) {
         if (nodetype == "NodePropAuto") return 0;
@@ -450,7 +459,9 @@ class NodeProgStatements : public NodeListEndlBase {
         if (nodetype == "NodeFunc") return 4;
         if (nodetype == "State") return 5;
         if (nodetype == "Import") return 6;
-        if (nodetype == "NodeFunc_native") return 7;
+        if (nodetype == "NodeFunc_n") return 7;
+        if (nodetype == "NodeEvent") return 8;
+        if (nodetype == "NodeEvent_n") return 9;
         std::cerr << "[WARN] unknown type " << nodetype << std::endl;
         return 5;
     }
@@ -519,7 +530,7 @@ class NodeProgStatements : public NodeListEndlBase {
         }
     }
     void generic_print(std::ostream& out, const nodes_vec& v, const std::string& shift, bool compressed, unsigned char ops, bool* shouldsep) {
-        if (*shouldsep && v.size()) out << "\n";
+        if (*shouldsep && v.size()) out << sep;
         *shouldsep = *shouldsep || v.size() > 0;
         bool hasendl = true;
         for (int i = 0; i < v.size(); ++i) {
@@ -533,9 +544,10 @@ class NodeProgStatements : public NodeListEndlBase {
             if (docstr)
                 generic_print_one(out, docstr, shift, compressed, &hasendl, ops);
         }
+        if (v.size() > 0) *shouldsep = !hasendl;
     }
 
-    inline const static std::array<std::function<const std::string* (Node*)>, 8> keyers = {
+    inline const static std::array<std::function<const std::string* (Node*)>, ITEMS_SIZE> keyers = {
         [](Node* a) { return &a->ch[0]->ch[0]->ch[0]->ch[1]->ch[0]->value; },
         [](Node* a) { return &a->ch[0]->ch[0]->ch[0]->ch[1]->ch[0]->value; },
         [](Node* a) { return &a->ch[0]->ch[0]->ch[1]->ch[0]->value; },
@@ -543,6 +555,8 @@ class NodeProgStatements : public NodeListEndlBase {
         [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; },
         [](Node* a) { return &a->ch[0]->ch[0]->ch[1]->ch[0]->value; },
         [](Node* a) { return &a->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; },
         [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; }
     };
 
@@ -564,55 +578,54 @@ class NodeProgStatements : public NodeListEndlBase {
         sort<IND>();
         generic_print(out, items[IND], shift, compressed, ops | 0x80, shouldsep);
     }
+    /* mb later align
+    void prepare_props_auto_(nodes_vec::const_iterator begin, nodes_vec::const_iterator end) {
+        struct Lengths {
+            size_t type = 0;
+            size_t name = 0;
+        } lengths;
+        for (; begin != end; ++begin)
+        {
+            lengths.name = std::max(lengths.name, std::get<0>(*begin)->ch[0]->ch[0]->ch[0]->ch[1]->ch[0]->value.size());
+            std::stringstream ss;
+            std::get<0>(*begin)->ch[0]->ch[0]->ch[0]->ch[0]->print_(ss);
+            lengths.type = std::max(lengths.type, ss.str().size());
+        }
+    }
 
-    void print_start(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        generic_print(out, tech[0], shift, true, ops | 0x80, shouldsep);
+    void prepare_props_auto(const nodes_vec& v, const std::string& shift, unsigned char ops) {
+        auto l = v.begin(), r = l;
+        while (r != v.end()) {
+            while (r != v.end() && std::get<1>(*r).size() == 0) ++r;
+
+            prepare_props_auto_(l, r);
+            l = r;
+        }
     }
-    void print_props_auto(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<0>(out, shift, true, shouldsep);
-    }
-    void print_props_read(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<1>(out, shift, true, shouldsep);
-    }
-    void print_props_big(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<2>(out, shift, false, shouldsep);
-    }
-    void print_vars(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<3>(out, shift, true, shouldsep);
-    }
-    void print_functions(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<4>(out, shift, false, shouldsep);
-    }
-    void print_states(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<5>(out, shift, false, shouldsep);
-    }
-    void print_imports(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<6>(out, shift, true, shouldsep);
-    }
-    void print_functions_native(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        sortprint<7>(out, shift, true, shouldsep);
-    }
-    void print_end(std::ostream& out, const std::string& shift, bool* shouldsep) {
-        generic_print(out, tech[1], shift, true, ops | 0x80, shouldsep);
-    }
+    */
 public:
     void print_(std::ostream& out, const std::string& shift = "") override {
         prepare_props();
 
-        bool shouldsep = false;
-        print_start(out, shift, &shouldsep);
-        print_imports(out, shift, &shouldsep);
-        print_props_auto(out, shift, &shouldsep);
-        print_props_read(out, shift, &shouldsep);
-        print_props_big(out, shift, &shouldsep);
-        print_vars(out, shift, &shouldsep);
-        print_functions(out, shift, &shouldsep);
-        print_states(out, shift, &shouldsep);
-        print_functions_native(out, shift, &shouldsep);
-        print_end(out, shift, &shouldsep);
+        bool _shouldsep = (ops & 0x10) && tech[0].size() == 0;
+        auto shouldsep = &_shouldsep;
+        generic_print(out, tech[0], shift, true, ops | 0x80, shouldsep);  // scriptname docstr & something other
+
+        sortprint<6>(out, shift, true, shouldsep);   // imports
+        sortprint<0>(out, shift, true, shouldsep);   // auto props
+        sortprint<1>(out, shift, true, shouldsep);   // autoreadonly props
+        sortprint<3>(out, shift, true, shouldsep);   // vars
+        sortprint<2>(out, shift, false, shouldsep);  // big props
+        sortprint<8>(out, shift, false, shouldsep);  // events
+        sortprint<4>(out, shift, false, shouldsep);  // functions
+        sortprint<5>(out, shift, false, shouldsep);  // states
+        sortprint<9>(out, shift, true, shouldsep);   // native events
+        sortprint<7>(out, shift, true, shouldsep);   // native functions
+        
+        generic_print(out, tech[1], shift, true, ops | 0x80, shouldsep);  // last comments
     }
 
-    NodeProgStatements(bool inc = true) : NodeListEndlBase(inc ? NodeListEndlBase::Options::AddShift | NodeListEndlBase::Options::AddShift : 0) { };
+    NodeProgStatements(bool inc = true, bool isglobal = false) : NodeListEndlBase((inc ? NodeListEndlBase::Options::AddShift | NodeListEndlBase::Options::AddShift : 0) | (isglobal ? 0x10 : 0x0)) { };
 };
 
 class NodeParam : public Node {

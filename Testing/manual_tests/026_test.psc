@@ -1,8 +1,8 @@
 Scriptname a
 
-import a
+import d
 
-   import a  
+   import c  
 
-import a  
+import b  
    import    a   

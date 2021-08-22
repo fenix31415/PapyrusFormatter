@@ -2,9 +2,9 @@ Scriptname a
 
 import a
 
-   import a  
+   import d  
 
-import a  
-   import    a
+import b  
+   import    c
 
 

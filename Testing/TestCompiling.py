@@ -99,7 +99,7 @@ def test_all(scripts):
     repairorigins()
     
     scripts_data = []
-    if withcheckorigin:
+    if withcheckorigin and not fastmode:
         with open(rootdir + "compiling_info.txt", "r", encoding='utf-8') as inp:
             scripts_data = list(map(lambda x: x.rstrip(), inp.readlines()))
     

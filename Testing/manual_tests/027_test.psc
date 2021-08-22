@@ -1,14 +1,15 @@
 Scriptname a
+   function   i(   )    native     global    global    global     global    global  
 
+function e() global native   
+function c() native global global global global global
 function a() native
-function a() global native
-function a() native global global global global global
+function b() global native
 
-function a() native  
-function a() global native   
-function a() native global global global global global   
+function f() native global global global global global 
+function d() native    
 
-   function    a()   native  
-   function   a   (  )    global    native   
-   function   a(   )    native     global    global    global     global    global   
+   function    g()   native   
 
+
+   function   h   (  )    global    native   

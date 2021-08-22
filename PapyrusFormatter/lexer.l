@@ -9,6 +9,7 @@
     #define YYSTYPE Node*
     #include "parser.tab.h"
     extern YYSTYPE yylval;
+    void yyerror(const char* str);
 %}
 
 %top{
@@ -165,7 +166,11 @@ eol           \n
 
 {ws}            { yylval = new NodeWS(yytext, 0); return WS; }
 {comm_m}        { yylval = new NodeWS(yytext, 1); return WS; }
-{comm_s}        { yylval = new NodeWS(yytext, 3); return WS; }
+{comm_s}        {
+    std::string s(yytext);
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
+    yylval = new NodeWS(s, 3); return WS;
+}
 {cont_line}     { yylval = new NodeWS(yytext, 2); return WS; }
 
 .               {
@@ -179,8 +184,13 @@ void openinfile(const char* name) {
     if (!name)
         return;
     fopen_s(&yyin, name, "r");
+    if (!yyin) {
+        std::cerr << "Cant open input file " << name << "\n";
+        yyerror(name);
+        exit(1);
+    }
 }
 
-void closeintpile() {
-    fclose(yyin);
+void closeinpfile() {
+    if (yyin) fclose(yyin);
 }

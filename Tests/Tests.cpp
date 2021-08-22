@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 
-//#define PIPE_OUT
+#define PIPE_OUT
 //#define ONLY_NOKS
 
 int test(int i) {
@@ -10,6 +10,7 @@ int test(int i) {
         test = "00" + test;
     if (test.size() == 2)
         test = "0" + test;
+    test = "c:\\Games\\modding\\PapyrusFormatter\\Testing\\manual_tests\\" + test;
     std::string ft_out = test + "_out.txt";
     std::string inp = test + "_test.psc";
     std::string rigans = test + "_ans.psc";
@@ -55,8 +56,8 @@ int test(int i) {
     return ans;
 }
 
-void test_all() {
-    const size_t MAX_TEST_IND = 43;
+void test_nonames() {
+    const size_t MAX_TEST_IND = 45;
     int succ = 0;
     for (size_t i = MAX_TEST_IND; i > 0; --i)
     {
@@ -69,6 +70,14 @@ void test_all() {
         std::cout << "Lox" << std::endl;
 }
 
+void test_names() {
+
+}
+
+void test_all() {
+    test_nonames();
+}
+
 #define ALL_TESTS
 
 int main()
@@ -76,7 +85,7 @@ int main()
 #ifdef ALL_TESTS
     test_all();
 #else
-    test(30);
+    test(1);
 #endif // ALL_TESTS
 
 }
