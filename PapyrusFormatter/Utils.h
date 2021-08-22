@@ -5,6 +5,10 @@
 #include <fstream>
 
 #include "UtilsLight.h"
+#include <cassert>
+#include <tuple>
+#include <functional>
+#include <array>
 
 // auto/autoreadonly * type/name/init
 int maxprops[2][3];
@@ -38,11 +42,12 @@ public:
     const static unsigned char l_enh = TrimOptions::SRemove | TrimOptions::LRemove | TrimOptions::RForceWS;
     const static unsigned char r_enh = TrimOptions::SRemove | TrimOptions::LForceWS | TrimOptions::RRemove;
     const static unsigned char remove = TrimOptions::SRemove | TrimOptions::LRemove | TrimOptions::RRemove;
+    const static unsigned char comment = TrimOptions::SRemove | TrimOptions::LRemove | TrimOptions::RForceNL;
 };
 
 class NodeWSS : public Node {
 private:
-    std::pair<std::string, unsigned char> GetTrimStrS(unsigned char ops) {
+    static std::pair<std::string, unsigned char> GetTrimStrS(unsigned char ops) {
         switch (ops) {
         case TrimOptions::SRemove:  return { "", 0 };
         case TrimOptions::SForceWS: return { " ", 0 };
@@ -51,7 +56,7 @@ private:
         }
     }
     // using with R: ops >>= 3
-    std::pair<std::string, unsigned char> GetTrimStrLR(unsigned char ops, bool hasNewLn) {
+    static std::pair<std::string, unsigned char> GetTrimStrLR(unsigned char ops, bool hasNewLn) {
         const std::pair<std::string, unsigned char> empty = { "", 0 };
         const std::pair<std::string, unsigned char> space = { " ", 0 };
         const std::pair<std::string, unsigned char> newln = { "\n", WSData::NewLn };
@@ -118,6 +123,8 @@ private:
     }
 
 public:
+    NodeWSS() = default;
+
     void appendl(Node* v) {
         NodeWS* n = (NodeWS*)v;
         if (!n->isContainsData() && ch.size() > 0) {
@@ -146,152 +153,180 @@ public:
         ch.push_back(v);
     }
 
-    std::string printWS(unsigned char ops) {
+    void printWS(std::ostream& out, unsigned char ops) {
         trim(ops);
 
-        std::string ans = "";
         for (int i = 0; i < ch.size(); ++i) {
-            ans += ch[i]->print_();
+            ch[i]->print_(out);
+        }
+    }
+
+    bool isContainsData(unsigned char ops) {
+        trim(ops);
+        bool ans = false;
+        for (int i = 0; i < ch.size(); ++i) {
+            ans = ans || ((NodeWS*)ch[i])->isContainsData();
         }
         return ans;
     }
 
-    virtual std::string gettype() const {
-        return "NodeWSS";
+    std::string gettype() const override { return "NodeWSS"; }
+};
+
+class NodeNws : public Node {
+private:
+    bool right;
+public:
+    unsigned char ops;
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        if (!right) {
+            ((NodeWSS*)ch[1])->printWS(out, ops);
+            if (ch[0]) ch[0]->print_(out, shift);
+        }
+        else {
+            if (ch[0]) ch[0]->print_(out, shift);
+            if (ch[1]) ((NodeWSS*)ch[1])->printWS(out, ops);
+        }
     }
-    NodeWSS() : Node() { };
+    virtual bool isEmpty() const { return true; }
+    std::string gettype() const override { return ch[0]->gettype(); }
+    bool incShift() const override { return ch[0] ? ch[0]->incShift() : false; }
+    NodeNws(Node* n, unsigned char ops, Node* rws = nullptr, bool right = true) : Node(), ops(ops), right(right) { addch({ n, rws }); };
 };
 
 class NodeList : public Node {
 private:
     bool withStart;
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans, tmp;
+    void print_(std::ostream& out, const std::string& shift = "") override {
         for (int i = 0; i < ch.size(); ++i) {
-            tmp = ch[i]->print_();
-            if (tmp == "")
-                continue;
             if (withStart || i != 0)
-                ans += shift;
-            ans += tmp;
+                out << shift;
+            ch[i]->print_(out);
         }
-        return ans;
     }
 
-    virtual std::string gettype() const {
-        return "NodeList";
-    }
+    std::string gettype() const override { return "NodeList"; }
 
     NodeList(bool withStart = true) : Node(), withStart(withStart) { };
 };
 
 class NodeConstList : public Node {
-private:
     bool withStart;
     const std::vector<std::string> args;
     const std::vector<std::string> enhs;
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = enhs.size() ? enhs[0] : "";
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        if (enhs.size()) out << enhs[0];
         for (int i = 0; i < ch.size(); ++i) {
-            auto sh = i < args.size() ? args[i] : "";
-            ans += ch[i]->print_(sh);
-            if (i + 1 < enhs.size()) ans += enhs[i + 1];
+            ch[i]->print_(out, i < args.size() ? args[i] : "");
+            if (i + 1 < (int)enhs.size()) out << enhs[i + 1];
         }
-        return ans;
     }
 
-    virtual std::string gettype() const {
-        return "NodeConstList";
-    }
+    std::string gettype() const override { return "NodeConstList"; }
+
     NodeConstList(std::vector<Node*> chs) : Node(), withStart(true), args(std::vector<std::string>()), enhs(std::vector<std::string>()) { ch = chs; };
     NodeConstList(std::vector<Node*> chs, std::vector<std::string> enhs) : Node(), withStart(true), args(std::vector<std::string>()), enhs(std::move(enhs)) { ch = chs; };
     NodeConstList(std::vector<Node*> chs, std::vector<std::string> enhs, std::vector<std::string> args, bool withStart = true) : Node(), withStart(withStart), args(std::move(args)), enhs(std::move(enhs)) { ch = chs; };
 };
 
-class NodeListEndl : public Node {
+class NodeConstListT : public NodeConstList {
+    const std::string type;
+public:
+    std::string gettype() const override { return type; }
+    NodeConstListT(std::string type, std::vector<Node*> chs) : NodeConstList(chs), type(type) { };
+    NodeConstListT(std::string type, std::vector<Node*> chs, std::vector<std::string> enhs) : NodeConstList(chs, enhs), type(type) { };
+    NodeConstListT(std::string type, std::vector<Node*> chs, std::vector<std::string> enhs, std::vector<std::string> args, bool withStart = true) : NodeConstList(chs, enhs, args), type(type) { };
+};
+
+class NodeListEndlBase : public Node {
 public:
     enum Options :unsigned char {
         AllEnable = 0x01,
-        DisableEnd = 0x02,
-        Disable = 0x03,
+        DisableStart = 0x02,
+        Disable = 0x03,  // only for %empty some_elseIfBlock
         LnMask = 0x03,
 
         AddShift = 0x04
     };
-private:
+    enum NodeType
+    {
+        Item, Docstring, Comment, Empty, EndlList, EmptyItem
+    };
+    using nodes_t = std::vector<Node*>;
+
     unsigned char ops;
-    bool incShift;
+    NodeListEndlBase(unsigned char ops) : ops(ops) { };
+    bool isEndls() const override { return true; }
+    std::string gettype() const override { return "NodeListEndl"; }
 
-public:
-    virtual std::string print_(const std::string& shift = "") {
-        return printLn(shift);
-    }
-    virtual std::string printLn(const std::string& shift = "") {
-        std::string ans;
-
-        for (int i = 0; i < ch.size(); ++i) {
-            if (!ch[i]->isEndls()) {
-                auto newline = ((ops & Options::LnMask) == Options::AllEnable) || (((ops & Options::LnMask) == Options::DisableEnd) && (i != ch.size() - 1));
-                auto addshift = ops & Options::AddShift;
-                std::string new_shift = shift;
-                if (incShift && ch[i]->incShift()) new_shift += one_shift;
-                ch[i]->appendPrint(ans, newline, addshift, new_shift);
-            }
-            else {
-                NodeListEndl* tmp = (NodeListEndl*)ch[i]->ch[0];
-                ans += tmp->printLn(shift);
-            }
+    // opts: lastendl, firstendl, addshift, hasendl
+    void appendPrint(Node* ch_i, std::ostream& out, const std::string& shift, unsigned char opts, bool* hasendl) const {
+        if (opts & 2 && (!hasendl || !(*hasendl))) {
+            out << "\n";
         }
-        return ans;
-    }
-    virtual std::string text() const {
-        std::string ans = "{ ";
-        for (int i = (int)ch.size() - 1; i >= 0; --i) {
-            if (i != ch.size() - 1) ans += ", ";
-            ans += ch[i]->text();
+        if (opts & 0x4) out << shift;
+        ch_i->print_(out, shift);
+        if ((opts & 1) || (opts & 0x8)) {
+            out << "\n";
+            if (hasendl && !(opts & 8)) *hasendl = true;
+            if (hasendl && (opts & 8)) *hasendl = false;
         }
-        return ans + "}";
+        else if (!(opts & 1)) {
+            if (hasendl) *hasendl = false;
+        }
     }
 
-    virtual bool isEndls() const {
-        return true;
-    }
+    NodeType get_type(Node* v_i) const {
+        if (v_i->isEndls()) return EndlList;
 
-    virtual std::string gettype() const {
-        return "NodeListEndl";
+        if (NodeNws* d = dynamic_cast<NodeNws*>(v_i)) {
+            if (d->isEmpty()) return v_i->gettype() == "NodeDocstring" ? Docstring : EmptyItem;
+            else return ((NodeWSS*)d->ch[1])->isContainsData(d->ops) ? Comment : Empty;
+        }
+        else return Item;
     }
-
-    NodeListEndl(bool incshift = true, unsigned char ops = Options::AllEnable | Options::AddShift) : Node(), incShift(incshift), ops(ops) { };
+    void generic_print_one(std::ostream& out, Node* v, const std::string& shift, bool compressed, bool* hasendl, unsigned char ops) const;
+    void generic_print(std::ostream& out, const nodes_t& v, const std::string& shift, bool compressed, unsigned char ops, bool* shouldsep = nullptr) const {
+        if (shouldsep && *shouldsep && v.size()) out << "\n";
+        if (shouldsep) *shouldsep || v.size() > 0;
+        bool hasendl = true;
+        for (int i = 0; i < v.size(); ++i) {
+            generic_print_one(out, v[i], shift, compressed, &hasendl, ops);
+        }
+    }
 };
+
+class NodeListEndl : public NodeListEndlBase {
+public:
+    void print_(std::ostream& out, const std::string& shift = "") override { return generic_print(out, ch, shift, true, ops); }
+    NodeListEndl(unsigned char ops) : NodeListEndlBase(ops) { };
+};
+
+void NodeListEndlBase::generic_print_one(std::ostream& out, Node* v, const std::string& shift, bool compressed, bool* hasendl, unsigned char ops) const {
+    std::string new_shift = shift;
+    if ((ops & Options::AddShift)) new_shift += one_shift;
+    auto type = get_type(v);
+    unsigned char addshift = ops & Options::AddShift ? 0x4 : 0x0;
+
+    if (type == EndlList)  return ((NodeListEndl*)v->ch[0])->print_(out, shift);
+    if (type == Docstring) return appendPrint(v, out, new_shift, 0x1 | addshift, hasendl);
+
+    unsigned char opts = (ops & Options::LnMask) == Options::AllEnable ? 0x8 : 0x0;
+
+    if (type == EmptyItem) return appendPrint(v, out, new_shift, ((ops & 0x80) ? (compressed ? 0x0 : 0x2) : opts) | addshift, hasendl);
+    if (type == Item)      return appendPrint(v, out, new_shift, opts | addshift, hasendl);
+    if (type == Comment) { appendPrint(v, out, new_shift, 0x2 | addshift, hasendl); *hasendl = true; return; }
+    if ((ops & 0x80) && type == Empty) return appendPrint(v, out, new_shift, 0x0 | addshift, hasendl);
+}
 
 class Node_mb : public Node {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        if (ch.size()) {
-            auto ans = ch[0]->print_(shift);
-            return ans;
-        }
-        return "";
-    }
-    virtual bool isEndls() const {
-        if (ch.size()) {
-            return ch[0]->isEndls();
-        }
-        return false;
-    }
-
-    virtual bool incShift() const {
-        if (ch.size())
-            return ch[0]->incShift();
-        return true;
-    }
-    virtual std::string gettype() const {
-        if (ch.size())
-            return "(Node_mb: " + ch[0]->gettype() + ")";
-        return "Node_mb";
-    }
+    void print_(std::ostream& out, const std::string& shift = "") override { if (ch.size()) ch[0]->print_(out, shift); }
+    bool isEndls() const override { return ch.size() ? ch[0]->isEndls() : false; }
+    bool incShift() const override { return ch.size() ? ch[0]->incShift() : true; }
+    std::string gettype() const override { return ch.size() ? "(Node_mb: " + ch[0]->gettype() + ")" : "Node_mb"; }
     Node_mb(Node* val = nullptr) : Node() { if (val) { addch(val); } }
 };
 
@@ -299,17 +334,16 @@ class Node_enhws : public Node {
 private:
     std::string l, r;
 public:
-    virtual std::string print_(const std::string& shift = "") {
+    void print_(std::ostream& out, const std::string& shift = "") override {
         unsigned char ops = ch[1]->ch.size() ? TrimOptionsPresets::l_enh : TrimOptionsPresets::remove;
-        return l + ((NodeWSS*)ch[0])->printWS(ops) + ch[1]->print_(shift) + r + ((NodeWSS*)ch[2])->printWS(TrimOptionsPresets::r_enh);
+        out << l;
+        ((NodeWSS*)ch[0])->printWS(out, ops);
+        ch[1]->print_(out, shift);
+        out << r;
+        ((NodeWSS*)ch[2])->printWS(out, TrimOptionsPresets::r_enh);
     }
-
-    virtual bool incShift() const {
-        return ch[1]->incShift();
-    }
-    virtual std::string gettype() const {
-        return "(Node_enhws: " + ch[1]->gettype() + ")";
-    }
+    bool incShift() const override { return ch[1]->incShift(); }
+    std::string gettype() const override { return "(Node_enhws: " + ch[1]->gettype() + ")"; }
     Node_enhws(Node* val, const std::string l, Node* lws, const std::string r, Node* rws) : Node(), l(l), r(r) { addch({ lws, val, rws }); }
 };
 
@@ -319,17 +353,16 @@ class Node_enh : public Node {
 private:
     std::string l, r;
 public:
-    virtual std::string print_(const std::string& shift = "") {
+    void print_(std::ostream& out, const std::string& shift = "") override {
         unsigned char ops = ch[1]->ch.size() ? TrimOptionsPresets::l_enh : TrimOptionsPresets::remove;
-        return l + ((NodeWSS*)ch[0])->printWS(ops) + ch[1]->print_(shift) + r;
+        out << l;
+        ((NodeWSS*)ch[0])->printWS(out, ops);
+        ch[1]->print_(out, shift);
+        out << r;
     }
 
-    virtual bool incShift() const {
-        return ch[1]->incShift();
-    }
-    virtual std::string gettype() const {
-        return "(Node_enh: " + ch[1]->gettype() + ")";
-    }
+    bool incShift() const override { return ch[1]->incShift(); }
+    std::string gettype() const override { return "(Node_enh: " + ch[1]->gettype() + ")"; }
     Node_enh(const std::string l, Node* lws, Node* val, const std::string r) : Node(), l(l), r(r) { addch({ lws, val }); }
 };
 
@@ -337,41 +370,28 @@ class NodeBin : public Node {
 private:
     std::string sp;
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        return ch[0]->print_() + sp + ch[1]->print_() + ch[2]->print_();
+    void print_(std::ostream& out, const std::string& shift = "") {
+        ch[0]->print_(out);
+        out << sp;
+        ch[1]->print_(out);
+        ch[2]->print_(out);
     }
 
-    virtual std::string gettype() const {
-        return "(NodeBin: " + ch[0]->gettype() + ", " + ch[2]->gettype() + ")";
-    }
+    std::string gettype() const override { return "(NodeBin: " + ch[0]->gettype() + ", " + ch[2]->gettype() + ")"; }
     NodeBin(Node* l, Node* s, Node* r, const std::string sp = " ") : Node(), sp(sp) { addch({ l, s, r }); };
 };
 
 
 
-class NodeNws : public Node {
-private:
-    unsigned char ops;
-    bool right;
+class NodeWSnewline : public NodeNws {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ch[0]->print_(shift);
-        if (right) {
-            if (ch[1])
-                ans += ((NodeWSS*)ch[1])->printWS(ops);
-        }
-        else {
-            ans = ((NodeWSS*)ch[1])->printWS(ops) + ans;
-        }
-        return ans;
-    }
-    virtual std::string gettype() const {
-        return "(NodeNws: " + ch[0]->gettype() + ")";
-    }
-    virtual bool incShift() const {
-        return ch[0]->incShift();
-    }
-    NodeNws(Node* n, unsigned char ops, Node* rws = nullptr, bool right = true) : Node(), ops(ops), right(right) { addch({ n, rws }); };
+    NodeWSnewline(Node* n, Node* rws = nullptr, bool right = false) : NodeNws(n, TrimOptionsPresets::newline, rws, right) { };
+};
+
+class NodeWScomment : public NodeNws {
+public:
+    bool isEmpty() const override { return false; }
+    NodeWScomment(Node* rws) : NodeNws(nullptr, TrimOptionsPresets::comment, rws, false) { };
 };
 
 class NodeWSoneline : public NodeNws {
@@ -399,71 +419,43 @@ public:
     NodeWSr_enh(Node* n, Node* rws = nullptr, bool right = true) : NodeNws(n, TrimOptionsPresets::r_enh, rws, right) { };
 };
 
-class NodeRemoveLine : public Node {
-    // for empty lines
-public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ((NodeWSS*)ch[0])->printWS(TrimOptionsPresets::remove);
-        return ans;
-    }
-
-    virtual std::string gettype() const {
-        return "NodeRemoveLine";
-    }
-    NodeRemoveLine(Node* line) : Node() { addch(line); };
-};
-
 
 
 class NodeFunc : public Node {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ch[0]->print_() + "\n" + ch[1]->print_(shift) + shift + ch[2]->print_(shift);
-        return ans;
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        ch[0]->print_(out);
+        out << "\n";
+        ch[1]->print_(out, shift);
+        out << shift;
+        ch[2]->print_(out, shift);
     }
-    virtual std::string gettype() const {
-        return "NodeFunc";
-    }
+    std::string gettype() const override { return "NodeFunc"; }
     NodeFunc(Node* header, Node* statements, Node* endfunction) : Node() { addch({ header, statements, endfunction }); };
 };
 
-class NodePropAuto : public Node {
-private:
-    std::string& presstabs(std::string& s, int a, int b) const {
-        s += std::string(maxprops[a][b] - s.length(), ' ');
-        return s;
-    }
-public:
-    int proptype;
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ch[0]->print_() + ch[1]->print_(" ") + " " + ch[2]->print_() + ch[3]->print_();
-        //ans += presstabs(type_, proptype-1, 0) + "property" + presstabs(name, proptype-1, 1);
-        //ans += presstabs(init, proptype-1, 2) + " " + ch[2]->print_() + ch[3]->print_(" ");
-        return ans;
-    }
+// for state, script, big_property
+class NodeProgStatements : public NodeListEndlBase {
+    using NodeListEndlBase::generic_print;
+    using item_t = std::tuple<Node*, nodes_t, Node*>;
+    using nodes_vec = std::vector<item_t>;  // item, comms, docstr
+    nodes_t tech[2]; // start, end
+    nodes_vec items[8];  // props_auto, props_read, props_big, vars, functions, states, imports, functions_native, end
 
-    std::string get_init() const {
-        return "get_init";
+    static size_t get_item_ind(std::string nodetype) {
+        if (nodetype == "NodePropAuto") return 0;
+        if (nodetype == "NodePropRead") return 1;
+        if (nodetype == "NodePropBig") return 2;
+        if (nodetype == "GlobalDefin") return 3;
+        if (nodetype == "NodeFunc") return 4;
+        if (nodetype == "State") return 5;
+        if (nodetype == "Import") return 6;
+        if (nodetype == "NodeFunc_native") return 7;
+        std::cerr << "[WARN] unknown type " << nodetype << std::endl;
+        return 5;
     }
-
-    std::string get_type() const {
-        return ch[0]->ch[0]->print_();
-    }
-
-    std::string get_name() const {
-        return ch[0]->ch[1]->text();
-    }
-
-    virtual std::string gettype() const {
-        return "NodePropAuto";
-    }
-    NodePropAuto(Node* start, Node* init, Node* autoflag, Node* end) : Node(), proptype(autoflag->text() != "auto") { addch({ start, init, autoflag, end }); };
-};
-
-class NodeProgStatements : public Node {
-private:
     void prepare_props() {
-        for (int i = 0; i < 2; ++i) {
+        /*for (int i = 0; i < 2; ++i) {
             for (auto& prop : ch[i]->ch) {
                 NodePropAuto* p = (NodePropAuto*)prop;
                 maxprops[i][0] = std::max(maxprops[i][0], (int)p->get_type().length());
@@ -471,7 +463,7 @@ private:
                 maxprops[i][2] = std::max(maxprops[i][2], (int)p->get_init().length());
             }
         }
-
+    
         auto cmp = [](const auto& lhs, const auto& rhs)
         {
             NodePropAuto* l = (NodePropAuto*)lhs;
@@ -487,111 +479,222 @@ private:
             return x < y;
         };
         std::sort(ch[0]->ch.begin(), ch[0]->ch.end(), cmp);
-        std::sort(ch[1]->ch.begin(), ch[1]->ch.end(), cmp);
+        std::sort(ch[1]->ch.begin(), ch[1]->ch.end(), cmp);*/
+        tech[0] = nodes_t();
+        tech[0] = nodes_t();
+        for (int i = 0; i < 8; i++)
+        {
+            items[i] = nodes_vec();
+        }
+
+        int ind = 0;
+        int oldind = -1;
+        nodes_vec* old_to_add = nullptr;
+        for (; ind < ch.size(); ++ind) {
+            auto type = get_type(ch[ind]);
+            if (type == Comment) {
+                if (oldind == -1) oldind = ind;
+            }
+            else if (type == Item || type == EndlList || type == EmptyItem) {
+                nodes_vec& to_add = items[get_item_ind(ch[ind]->gettype())];
+                old_to_add = &to_add;
+                auto curind = to_add.size();
+                to_add.push_back(std::make_tuple(ch[ind], nodes_t(), nullptr));
+                if (oldind > -1) {
+                    while (oldind < ind) {
+                        std::get<1>(to_add[curind]).push_back(ch[oldind]);
+                        ++oldind;
+                    }
+                    oldind = -1;
+                }
+            }
+            else if (type == Docstring) {
+                if (old_to_add) std::get<2>((*old_to_add)[old_to_add->size()-1]) = ch[ind];
+                else tech[0].push_back(ch[ind]);
+            }
+        }
+        while (oldind > -1 && oldind < ind) {
+            tech[1].push_back(ch[oldind]);
+            ++oldind;
+        }
+    }
+    void generic_print(std::ostream& out, const nodes_vec& v, const std::string& shift, bool compressed, unsigned char ops, bool* shouldsep) {
+        if (*shouldsep && v.size()) out << "\n";
+        *shouldsep = *shouldsep || v.size() > 0;
+        bool hasendl = true;
+        for (int i = 0; i < v.size(); ++i) {
+            auto comms = std::get<1>(v[i]);
+            for (auto& com : comms)
+            {
+                generic_print_one(out, com, shift, compressed, &hasendl, ops);
+            }
+            generic_print_one(out, std::get<0>(v[i]), shift, compressed, &hasendl, ops);
+            auto docstr = std::get<2>(v[i]);
+            if (docstr)
+                generic_print_one(out, docstr, shift, compressed, &hasendl, ops);
+        }
+    }
+
+    inline const static std::array<std::function<const std::string* (Node*)>, 8> keyers = {
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[1]->ch[0]->value; },
+        [](Node* a) { return &a->ch[0]->ch[0]->ch[2]->ch[0]->value; }
+    };
+
+    template<size_t IND>
+    void sort() {
+        const auto key = keyers[IND];
+        auto& cur = items[IND];
+        std::sort(cur.begin(), cur.end(), [&key](const item_t& _a, const item_t& _b) {
+            auto a = std::get<0>(_a);
+            auto b = std::get<0>(_b);
+            auto a_name = key(a);
+            auto b_name = key(b);
+            return a_name->compare(*b_name) < 0;
+            });
+    }
+
+    template<size_t IND>
+    void sortprint(std::ostream& out, const std::string& shift, bool compressed, bool* shouldsep) {
+        sort<IND>();
+        generic_print(out, items[IND], shift, compressed, ops | 0x80, shouldsep);
+    }
+
+    void print_start(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        generic_print(out, tech[0], shift, true, ops | 0x80, shouldsep);
+    }
+    void print_props_auto(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<0>(out, shift, true, shouldsep);
+    }
+    void print_props_read(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<1>(out, shift, true, shouldsep);
+    }
+    void print_props_big(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<2>(out, shift, false, shouldsep);
+    }
+    void print_vars(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<3>(out, shift, true, shouldsep);
+    }
+    void print_functions(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<4>(out, shift, false, shouldsep);
+    }
+    void print_states(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<5>(out, shift, false, shouldsep);
+    }
+    void print_imports(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<6>(out, shift, true, shouldsep);
+    }
+    void print_functions_native(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        sortprint<7>(out, shift, true, shouldsep);
+    }
+    void print_end(std::ostream& out, const std::string& shift, bool* shouldsep) {
+        generic_print(out, tech[1], shift, true, ops | 0x80, shouldsep);
     }
 public:
-    virtual std::string print_(const std::string& shift = "") {
+    void print_(std::ostream& out, const std::string& shift = "") override {
         prepare_props();
-        std::string ans = ch[0]->print_() + "\n" + ch[1]->print_() + "\n" + ch[2]->print_() + "\n" + ch[3]->print_() + "\n" + ch[4]->print_();
-        return ans;
+
+        bool shouldsep = false;
+        print_start(out, shift, &shouldsep);
+        print_imports(out, shift, &shouldsep);
+        print_props_auto(out, shift, &shouldsep);
+        print_props_read(out, shift, &shouldsep);
+        print_props_big(out, shift, &shouldsep);
+        print_vars(out, shift, &shouldsep);
+        print_functions(out, shift, &shouldsep);
+        print_states(out, shift, &shouldsep);
+        print_functions_native(out, shift, &shouldsep);
+        print_end(out, shift, &shouldsep);
     }
 
-    virtual void addch(Node* c) {
-        auto type = c->gettype();
-        if (type == "NodePropAuto") {
-            NodePropAuto* p = (NodePropAuto*)c;
-            if (p->proptype == 1) {  // auto
-                ch[0]->addch(c);
-            }
-            else if (p->proptype == 2)  // autoreadonly
-                ch[1]->addch(c);
-            else                    // big
-                ch[2]->addch(c);
-        }
-        else if (type == "NodeGlobalDefin") {
-            ch[3]->addch(c);
-        }
-        else {
-            ch[4]->addch(c);
-        }
-    }
-
-    virtual std::string gettype() const {
-        return "NodeProgStatements";
-    }
-
-    // auto props, autoreadonly props, big props, global vars & others
-    NodeProgStatements() : Node() {
-        ch.push_back(new NodeListEndl(false));
-        ch.push_back(new NodeListEndl(false));
-        ch.push_back(new NodeListEndl(false));
-        ch.push_back(new NodeListEndl(false));
-        ch.push_back(new NodeList());
-    };
+    NodeProgStatements(bool inc = true) : NodeListEndlBase(inc ? NodeListEndlBase::Options::AddShift | NodeListEndlBase::Options::AddShift : 0) { };
 };
 
 class NodeParam : public Node {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ch[0]->print_();
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        ch[0]->print_(out);
         if (ch[1]->ch.size()) {
-            ans += " " + ch[1]->ch[0]->print_();
-            ans += ch[1]->ch[1]->print_();
+            out << " ";
+            ch[1]->ch[0]->print_(out);
+            ch[1]->ch[1]->print_(out);
         }
-        return ans;
     }
 
-    virtual std::string gettype() const {
-        return "NodeParam";
-    }
+    std::string gettype() const override { return "NodeParam"; }
     NodeParam(Node* type, Node* mbinit) : Node() { addch({ type, mbinit }); };
 };
 
 class NodeIf : public Node {
 public:
-    virtual std::string print_(const std::string& shift) {
-        std::string ans = "if" + ch[0]->print_() + "\n" + ch[1]->print_(shift);
-        ans += shift + ((NodeWSS*)ch[2])->printWS(TrimOptionsPresets::l_enh);
-        return ans + ch[3]->print_(shift) + ch[4]->print_(shift) + "endif";
+    void print_(std::ostream& out, const std::string& shift) override {
+        out << "if";
+        ch[0]->print_(out);
+        out << "\n";
+        ch[1]->print_(out, shift);
+        out << shift;
+        ((NodeWSS*)ch[2])->printWS(out, TrimOptionsPresets::l_enh);
+        ch[3]->print_(out, shift);
+        ch[4]->print_(out, shift);
+        out << "endif";
     }
     NodeIf(Node* cond, Node* states, Node* ws, Node* some_elseifs, Node* mb_else) : Node() { addch({ cond, states, ws, some_elseifs, mb_else }); };
 };
 
 class NodeElse : public Node {
 public:
-    virtual std::string print_(const std::string& shift) {
-        return ch[0]->print_() + "\n" + ch[1]->print_(shift) + "" + shift + ((NodeWSS*)ch[2])->printWS(TrimOptionsPresets::l_enh);
+    void print_(std::ostream& out, const std::string& shift) override {
+        ch[0]->print_(out);
+        out << "\n";
+        ch[1]->print_(out, shift);
+        out << shift;
+        ((NodeWSS*)ch[2])->printWS(out, TrimOptionsPresets::l_enh);
     }
     NodeElse(Node* else_, Node* states, Node* ws) : Node() { addch({ else_, states, ws }); };
 };
 
 class NodeElseIf : public Node {
 public:
-    virtual std::string print_(const std::string& shift) {
-        return "elseif" + ch[0]->print_() + "\n" + ch[1]->print_(shift) + shift + ((NodeWSS*)ch[2])->printWS(TrimOptionsPresets::l_enh);
+    void print_(std::ostream& out, const std::string& shift) override {
+        out << "elseif";
+        ch[0]->print_(out);
+        out << "\n";
+        ch[1]->print_(out, shift);
+        out << shift;
+        ((NodeWSS*)ch[2])->printWS(out, TrimOptionsPresets::l_enh);
     }
     NodeElseIf(Node* cond, Node* states, Node* ws) : Node() { addch({ cond, states, ws }); };
 };
 
 class NodeWhile : public Node {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        return "while" + ch[0]->print_() + "\n" + ch[1]->print_(shift) + shift + ch[2]->print_();
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        out << "while";
+        ch[0]->print_(out);
+        out << "\n";
+        ch[1]->print_(out, shift);
+        out << shift;
+        ch[2]->print_(out);
     }
     NodeWhile(Node* cond, Node* states, Node* endwhile) : Node() { addch({ cond, states, endwhile }); };
 };
 
 class NodeFuncHeader : public Node {
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = ch[0]->print_();
-        if (ans != "") ans += " ";
-        ans += ch[1]->print_() + ch[2]->print_() + ch[3]->print_(",") + ch[4]->print_();
-        return ans;
+    void print_(std::ostream& out, const std::string& shift = "") override {
+        ch[0]->print_(out);
+        if (ch[0]->ch.size()) out << " ";
+        ch[1]->print_(out);
+        ch[2]->print_(out);
+        ch[3]->print_(out, ",");
+        ch[4]->print_(out);
     }
-    virtual std::string gettype() const {
-        return "NodeFuncHeader";
-    }
+    std::string gettype() const override { return "NodeFuncHeader"; }
     NodeFuncHeader(Node* type, Node* func, Node* name, Node* params, Node* flags) : Node() { addch({ type, func, name, params, flags }); };
 };
 

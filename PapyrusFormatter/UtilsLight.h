@@ -4,6 +4,7 @@
 #include <string>
 #include <fstream>
 #include <algorithm>
+#include <sstream>
 
 const std::string one_shift = "  ";
 
@@ -13,129 +14,89 @@ public:
     std::string value;
 
 public:
-    Node() : value(), ch() {
-        //std::cout<<"creating parent Node"<<std::endl;
-    };
-    Node(std::string s) : value(s), ch() {
-        //std::replace(s.begin(), s.end(), '\n', '\\');
-        //std::replace(s.begin(), s.end(), '\r', '\\');
-        //std::cout<<"creating Node '"<<s<<"'"<<std::endl;
-    };
+    Node() = default;
+    Node(std::string s) : value(s), ch() { };
+    Node(const Node& other) = delete;
+    Node& operator=(const Node& other) = delete;
 
-    virtual std::string text() const {
-        return value;
+    virtual ~Node() {
+        for (int i = 0; i < ch.size(); ++i) {
+            delete ch[i];
+        }
     }
 
-    virtual void addch(Node* c) {
-        ch.push_back(c);
-    }
+    virtual std::string text() const { return value; }
 
-    Node* addch(std::vector<Node*>&& args) {
+    virtual void addch(Node* c) { ch.push_back(c); }
+
+    Node* addch(const std::vector<Node*>& args) {
         ch.insert(ch.end(), args.begin(), args.end());
         return this;
     }
 
-    virtual std::string gettype() const {
-        return "Node";
+    virtual void print_(std::ostream& out, const std::string& shift = "") {
+        out << "(" << gettype() << ": " << text() << " ";
+        for (int i = (int)ch.size() - 1; i >= 0; --i) {
+            out << "[";
+            ch[i]->print_(out, shift);
+            out << "], ";
+        }
+        out << ")";
     }
 
-    virtual std::string print_(const std::string& shift = "") {
-        std::string ans = "(" + gettype() + ": " + text() + " ";
-        for (int i = (int)ch.size() - 1; i >= 0; --i) {
-            ans += "[" + ch[i]->print_(shift) + "], ";
-        }
-        ans += ")";
-        return ans;
+    void print__(std::ostream& out) const {
+        out << value;
     }
 
     void print(const char* name) {
         if (!name) {
-            std::cout << print_();
+            std::stringstream ss;
+            print_(ss);
+            std::cout << ss.str();
         }
         else {
             std::ofstream outfile(name);
-            outfile << print_();
+            print_(outfile);
             outfile.close();
         }
     }
 
-    void appendText(std::string& ans, const Node* src, const std::string& enhL = "", const std::string& enhR = "") const {
+    void appendText(std::ostream& out, const Node* src, const std::string& enhL = "", const std::string& enhR = "") const {
         std::string tmp = src->text();
         if (tmp != "")
-            ans += enhL + tmp + enhR;
+            out << enhL << tmp << enhR;
     }
 
-    void appendStr(std::string& ans, const std::string& src, const std::string& enhL = "", const std::string& enhR = "") const {
-        if (src != "")
-            ans += enhL + src + enhR;
-    }
-
-    void appendValues(std::string& ans, const Node* src, const std::string& enhL = "", const std::string& enhR = "") const {
-        std::string tmp = "";
+    void appendValues(std::ostream& out, const Node* src, const std::string& enhL = "", const std::string& enhR = "") const {
         for (int i = (int)src->ch.size() - 1; i >= 0; --i) {
-            tmp += enhL + src->ch[i]->text() + enhR;
+            out << enhL << src->ch[i]->text() << enhR;
         }
-        if (tmp != "")
-            ans += tmp;
     }
 
-    void appendPrint(std::string& ans, bool newline = true, bool addShift = true, const std::string& shift = "") {
-        std::string r, tmp;
-        if (newline) r = "\n";
-        tmp = print_(shift);
-        if (tmp == "") return;
-        if (addShift)
-            ans += shift + tmp + r;
-        else
-            ans += tmp + r;
-    }
+    virtual std::string gettype() const { return "Node"; }
 
     // for NodeListEndl
-    virtual bool isEndls() const {
-        return false;
-    }
+    virtual bool isEndls() const { return false; }
 
     // for docstring
-    virtual bool incShift() const {
-        return true;
-    }
-
-    virtual ~Node() {
-        //std::cout<<"deleting '"<<value<<"'"<<std::endl;
-        for (int i = 0; i < ch.size(); ++i) {
-            //std::cout<<"    deleting child "<<i<<" '"<<ch[i]->value<<"'"<<std::endl;
-            delete ch[i];
-        }
-    }
+    virtual bool incShift() const { return true; }
 };
 
 class NodeConst : public Node {
-private:
-    void ltrim(std::string& s) const {
-        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
-            return !std::isspace(ch);
-            }));
-    }
-    void rtrim(std::string& s) const {
-        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
-            return !std::isspace(ch);
-            }).base(), s.end());
-    }
-    void trim(std::string& s) const {
-        ltrim(s);
-        rtrim(s);
-    }
 public:
-    virtual std::string print_(const std::string& shift = "") {
-        return value;
-    }
+    void print_(std::ostream& out, const std::string& shift = "") override { print__(out); }
 
-    virtual std::string gettype() const {
-        return "NodeConst";
-    }
-    NodeConst(std::string s) : Node(s) {
+    std::string gettype() const override { return "NodeConst"; }
+    NodeConst(std::string s) : Node(s) { };
+};
 
-    };
+class NodeDocstring : public Node {
+public:
+    void print_(std::ostream& out, const std::string& shift = "") override { print__(out); }
+
+    std::string gettype() const override { return "NodeDocstring"; }
+    bool incShift() const override { return false; }
+    NodeDocstring(std::string s) : Node(s) { };
 };
 
 enum WSData {
@@ -147,25 +108,13 @@ class NodeWS : public Node {
 public:
     unsigned char ops;
 
-    virtual std::string print_(const std::string& shift = "") {
-        return text();
-    }
+    void print_(std::ostream& out, const std::string& shift = "") { return print__(out); }
 
-    virtual std::string gettype() const {
-        return "NodeWS";
-    }
+    std::string gettype() const override { return "NodeWS"; }
 
-    bool isContainsData() {
-        return ops & WSData::Data;
-    }
+    bool isContainsData() const { return ops & WSData::Data; }
 
-    bool isContainsNewLn() {
-        return ops & WSData::NewLn;
-    }
-
-    unsigned char getOps() {
-        return ops;
-    }
+    bool isContainsNewLn() const { return ops & WSData::NewLn; }
 
     NodeWS(std::string s, unsigned char flags) : Node(s), ops(flags) { };
 };

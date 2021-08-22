@@ -1,0 +1,11 @@
+  [ER] compile error: DLC1SkeletonAmbushScript.psc
+  [ER] compile error: DLC1SoulCairnWispWallCHILDScript.psc
+  [ER] compile error: dlc1testphilvortexscript.psc
+  [ER] compile error: dlc1testphilvortextrigscript.psc
+  [ER] compile error: DLC2AudioRepeaterActivator01Script.psc
+  [ER] compile error: DLC2MQ06MiraakBossBattle.psc
+  [ER] compile error: dunVolunruudAltarScript.psc
+  [ER] compile error: ffibritualondyingscript.psc
+  [ER] compile error: FNIS.psc
+  [ER] compile error: FXSnowBlowingFogAttachScript.psc
+  [ER] compile error: IMP_EnchanterRitual.psc

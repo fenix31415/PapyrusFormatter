@@ -95,10 +95,15 @@ comm_s        ";"[^/\n][^\n]*
 docstring     "{"[^}]*"}"
 ws            [ \t]+
 cont_line     \\[ \t]*\n
-eol           [;]?\n
+eol           \n
 
 %%
 
+"; Skipped compiler generated GotoState" {}
+"; Skipped compiler generated GetState" {}
+";-- Functions ---------------------------------------" {}
+";-- Variables ---------------------------------------" {}
+";-- Properties --------------------------------------" {}
 [(]             { return LB; }
 [)]             { return RB; }
 [[]             { return LQB; }
@@ -106,6 +111,7 @@ eol           [;]?\n
 [,]             { return COMMA; }
 [\.]            { return DOT; }
 {eol}           { yylval = new NodeWS(yytext, 2); return EOL; }
+;               { yylval = new NodeWS(yytext, 1); return WS; }
 
 {new}           { return NEW; }
 {state}         { return STATE; }
@@ -153,13 +159,13 @@ eol           [;]?\n
 {bool_t}        { yylval = new NodeConst(yytext); return BASETYPE; }
 {string_t}      { yylval = new NodeConst(yytext); return BASETYPE; }
 
-{docstring}     { yylval = new NodeConst(yytext); return DOCSTRING; }
+{docstring}     { yylval = new NodeDocstring(yytext); return DOCSTRING; }
 {identifier}    { yylval = new NodeConst(yytext); return ID; }
 {string_double} { yylval = new NodeConst(yytext); return STRING; }
 
 {ws}            { yylval = new NodeWS(yytext, 0); return WS; }
-{comm_s}        { yylval = new NodeWS(yytext, 1); return WS; }
 {comm_m}        { yylval = new NodeWS(yytext, 1); return WS; }
+{comm_s}        { yylval = new NodeWS(yytext, 3); return WS; }
 {cont_line}     { yylval = new NodeWS(yytext, 2); return WS; }
 
 .               {

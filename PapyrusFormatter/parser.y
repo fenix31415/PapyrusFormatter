@@ -13,6 +13,7 @@
     #define YYSTYPE Node*
     
     #define YYERROR_VERBOSE 1
+    #define YYINITDEPTH 500
     
     int  wrapRet = 1;
     
@@ -62,7 +63,7 @@
 all_file: Program { $$ = $1; $$->print(outname); delete $$; }
 
 Program
-  : Header mb_ProgramBody { $$ = new NodeConstList({$1, $2}, {"", "\n"}); }
+  : Header mb_ProgramBody { $$ = new NodeConstList({$1, $2}, {"", "\n", ""});}
 
 mb_ProgramBody:
     %empty{ $$ = new Node_mb();}
@@ -84,21 +85,21 @@ header_end
   { $$ = new NodeConstList({new NodeWSr_enh($2, $1, false), new NodeConstList({$3, new NodeWSr_enh($4, $5)}, {}, {"", " "})}, {"", " "}, {"", " "}); }
 
 some_Elements
-  :                           %empty { $$ = new NodeListEndl(false); }
+  :                           %empty { $$ = new NodeProgStatements(false); }
   | some_Elements mb_wss Element EOL { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
-  | some_Elements mb_wss         EOL{ $$ = $1; $$->addch(new NodeWS_rem(new NodeConst(""), $2)); }
+  | some_Elements mb_wss         EOL{ $$ = $1; $$->addch(new NodeWScomment($2)); }
 
 Element
-    : IMPORT wss ID mb_wss{ $$ = new NodeConstList({new NodeWSoneline($1, $2), new NodeWSr_enh($3, $4)}); }
+    : IMPORT wss ID mb_wss{ $$ = new NodeConstListT("Import", {new NodeWSoneline($1, $2), new NodeWSr_enh($3, $4)}, {"", "", "\n"});}
   | property               { $$ = $1; }
   | function               { $$ = $1; }
   | globalDefin            { $$ = $1; }
   | event                  { $$ = $1; }
   | State                  { $$ = $1; }
-  | DOCSTRING mb_wss       { $$ = new NodeWSr_enh($1, $2); }
+  | DOCSTRING mb_wss       { $$ = new NodeWSnewline($1, $2, true); }
 
 
-globalDefin: type ID mb_wss mb_initExpr globalDefin_end  { $$ = new NodeConstList({$1, new NodeWSr_enh($2, $3), $4, $5}, {"", " "}, {"","",""," "}); }
+globalDefin: type ID mb_wss mb_initExpr globalDefin_end{ $$ = new NodeConstListT("GlobalDefin", {$1, new NodeWSr_enh($2, $3), $4, $5}, {"", " ", "", "", "\n"}, {"","",""," ", "", ""});}
 globalDefin_end
   :                                         %empty { $$ = new Node_mb(); }
   | propertyFlag some_propertyFlags mb_wss { $$ = new NodeWSoneline(new NodeConstList({$1, new NodeWSr_enh($2, $3)}, {}, {"", " "}), new NodeConst(" "), false); }
@@ -107,15 +108,15 @@ globalDefin_end
 
 State
   : state_start mb_wss EOL some_StateElements mb_wss ENDSTATE mb_wss
-  { $$ = new NodeConstList({$1, new NodeWSr_enh(new Node_mb(), $2), $4, new NodeWSl_enh(new NodeWSr_enh($6, $7), $5)}, {"","","\n","","\n"}); }
+  { $$ = new NodeConstListT("State", {$1, new NodeWSr_enh(new Node_mb(), $2), $4, new NodeWSr_enh(new NodeWSr_enh($6, $7), $5, false)}, {"","","", "", "\n"});}
 
-state_start: mb_auto STATE wss ID  { $$ = new NodeConstList({$1, new NodeWSoneline($4, $3, false)}, {"", "state"}); }
+state_start: mb_auto STATE wss ID  { $$ = new NodeConstList({$1, new NodeWSoneline($4, $3, false)}, {"", "state", "\n"});}
 some_StateElements
-  :                                                  %empty { $$ = new NodeListEndl(true); }
+  :                                                  %empty { $$ = new NodeProgStatements(); }
   | some_StateElements mb_wss function         EOL  { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
   | some_StateElements mb_wss event            EOL  { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
   | some_StateElements mb_wss DOCSTRING mb_wss EOL  { $$ = $1; $$->addch(new NodeWSl_enh(new NodeWSr_enh($3, $4), $2)); }
-  | some_StateElements mb_wss                  EOL  { $$ = $1; $$->addch(new NodeRemoveLine($2)); }
+  | some_StateElements mb_wss                  EOL{ $$ = $1; $$->addch(new NodeWScomment($2)); }
 mb_auto:  %empty { $$ = new Node_mb(); } | AUTO wss { $$ = new NodeWSoneline($1, $2); }
 
 // ^^^^^^^^^^^^^^  STATES  ^^^^^^^^^^^^^^^^
@@ -148,8 +149,8 @@ some_propertyFlags:  %empty { $$ = new NodeList(); } | some_propertyFlags wss pr
 // ------------  PROPERTIES  -------------------
 
 property
-  : property_start mb_wss mb_initStatic propertyFlag_auto property_end       { $$ = new NodePropAuto(new NodeWSr_enh($1, $2), $3, $4, $5); }
-  | property_start property_end EOL some_functions mb_wss ENDPROPERTY mb_wss { $$ = new NodeConstList({$1, $2, $4, new NodeWSl_enh(new NodeWSr_enh($6, $7), $5)}, {"","","\n","","\n"}); }
+    : property_start mb_wss mb_initStatic propertyFlag_auto property_end{ $$ = new NodeConstListT($4->value.size() == 4 ? "NodePropAuto" : "NodePropRead", {new NodeWSr_enh($1, $2), $3, $4, $5}, {"", "", " ", "", "\n"}, {"", " "});}
+  | property_start property_end EOL some_functions mb_wss ENDPROPERTY mb_wss { $$ = new NodeConstListT("NodePropBig", {$1, $2, $4, new NodeWSl_enh(new NodeWSr_enh($6, $7), $5)}, {"","","\n","","\n"});}
 
 property_start
   : type PROPERTY wss ID { $$ = new NodeConstList({$1, new NodeWSoneline($4, $3, false)}, {"", " property"}); }
@@ -206,8 +207,8 @@ mb_InParamList:                %empty { $$ = new Node_mb(); } | InParamList { $$
 // ------------- FUNCTIONS & EVENTS  ------------------
 
 function
-  : functionHeader EOL Statements mb_wss ENDFUNCTION mb_wss  { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSr_enh($5, $6), $4)); }
-  | functionHeader NATIVE mb_wssfunctionflags                { $$ = new NodeConstList({$1, $3}, {""," native"}); }
+  : functionHeader EOL Statements mb_wss ENDFUNCTION mb_wss  { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSnewline($5, $6, true), $4)); }
+  | functionHeader NATIVE mb_wssfunctionflags                { $$ = new NodeConstListT("NodeFunc_native", {$1, $3}, {""," native\n"});}
 
 functionHeader
   : mb_type FUNCTION wss ID mb_wss paramList mb_functionFlags
@@ -220,16 +221,16 @@ mb_functionFlags
   | functionFlag some_functionFlags mb_wss { $$ = new Node_mb(new NodeConstList({$1, new NodeWSr_enh($2, $3)}, {" "}, {"", " "})); }
 
 some_functions
-  :                                              %empty { $$ = new NodeListEndl(true); }
+  :                                              %empty { $$ = new NodeProgStatements(); }
   | some_functions mb_wss function EOL          { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
   | some_functions mb_wss DOCSTRING mb_wss EOL  { $$ = $1; $$->addch(new NodeWSl_enh(new NodeWSr_enh($3, $4), $2)); }
-  | some_functions mb_wss EOL                   { $$ = $1; $$->addch(new NodeRemoveLine($2)); }
+  | some_functions mb_wss EOL                   { $$ = $1; $$->addch(new NodeWScomment($2));}
 
 // --------  EVENTS  --------
 
 event
   : eventHeader EOL Statements mb_wss ENDEVENT mb_wss { $$ = new NodeFunc($1, $3, new NodeWSl_enh(new NodeWSr_enh($5, $6), $4)); }
-  | eventHeader NATIVE mb_wss                         { $$ = new NodeConstList({$1, $3}, {""," native"}); }
+  | eventHeader NATIVE mb_wss                         { $$ = new NodeConstListT("NodeFunc", {$1, $3}, {""," native"});}
 
 eventHeader
   : EVENT wss ID mb_wss paramList
@@ -258,9 +259,9 @@ mb_type:                     %empty { $$ = new Node_mb(); } | type { $$ = new No
 // -------------  STATEMENTS  --------------
 
 Statements
-  :                                  %empty { $$ = new NodeListEndl(true); }
+  :                                  %empty { $$ = new NodeListEndl(NodeListEndl::Options::AllEnable | NodeListEndl::Options::AddShift); }
   | Statements mb_wss Statement EOL { $$ = $1; $$->addch(new NodeWSl_enh($3, $2)); }
-  | Statements mb_wss           EOL { $$ = $1; $$->addch(new NodeRemoveLine($2)); }
+  | Statements mb_wss           EOL{ $$ = $1; $$->addch(new NodeWScomment($2)); }
 
 Statement
   : ifStatement mb_wss           { $$ = new NodeWSr_enh($1, $2); }
@@ -281,7 +282,7 @@ ifStatement
   : IF mb_wss Expression EOL Statements mb_wss some_elseIfBlock mb_elseBlock ENDIF
   { $$ = new NodeIf(new NodeWSoneline($3, $2, false), $5, $6, $7, $8); }
 
-some_elseIfBlock:  %empty { $$ = new NodeListEndl(false, NodeListEndl::Options::Disable); } | some_elseIfBlock elseIfBlock  { $$ = $1; $$->addch($2); }
+some_elseIfBlock:  %empty { $$ = new NodeListEndl(NodeListEndl::Options::Disable); } | some_elseIfBlock elseIfBlock  { $$ = $1; $$->addch($2); }
 elseIfBlock
   : ELSEIF mb_wss Expression EOL Statements mb_wss
   { $$ = new NodeElseIf(new NodeWSoneline($3, $2, false), $5, $6); }

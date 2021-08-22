@@ -12,7 +12,7 @@ void handle_files(const char* inp = nullptr, const char* out = nullptr) {
     outname = out;
 }
 
-int format_papyrus(const char* inp, const char* out) {
+int format_papyrus(const char* inp, const char* out = nullptr) {
     handle_files(inp, out);
     int ans = yyparse();
     closeintpile();
@@ -21,6 +21,7 @@ int format_papyrus(const char* inp, const char* out) {
 
 int main_impl_dbg() {
     return format_papyrus("test.psc", "ans.psc");
+    //return format_papyrus("test.psc");
 }
 
 int main_impl(int argc, char** argv) {

@@ -8,7 +8,7 @@
 #endif
 
 //#define DEBUG
-//#define MYFILES
+#define MYFILES
 
 extern const char* outname;
 int main_impl(int argc, char** argv);

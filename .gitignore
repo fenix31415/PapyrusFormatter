@@ -1,5 +1,10 @@
-Testing/
-Tests/
+Testing/src/
+Testing/SCRIPTS/
+Testing/compiled_tmp/
+Testing/PapyrusFormatter.exe
+Testing/sample.psc
+Testing/sample.psc
+Tests/x64/
 x64/
 .vs/
 PapyrusFormatter/x64/
